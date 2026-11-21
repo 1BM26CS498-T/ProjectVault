@@ -1,5 +1,7 @@
 # ProjectVault
 
+A college project repository for discovering, managing, and comparing student projects.
+
 ProjectVault is a React/Vite app backed by an Express API, Neon PostgreSQL, Neon Auth, Neon Object Storage, and a Neon Function. The browser never connects directly to PostgreSQL or S3; the API verifies Neon Auth tokens and enforces ProjectVault roles and file access.
 
 ## Architecture
