@@ -1,5 +1,6 @@
 ﻿node_modules/
 dist/
+.scannerwork/
 .env
 .env.*
 !.env.example
@@ -12,12 +13,13 @@ backup-*.zip
 change-password.mjs
 
 # Source code backups
-src/**/*.backup
-src/**/*-backup*
+frontend/src/**/*.backup
+frontend/src/**/*-backup*
 
 # Local Supabase CLI state
-supabase/.temp/
+backend/supabase/.temp/
 
 # Backup files
 *.backup
 *-backup*
+.neon

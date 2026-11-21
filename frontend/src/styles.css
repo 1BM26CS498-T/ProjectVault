@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #392f30; background: #f8f6f7; font-synthesis: none; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button { font: inherit; cursor: pointer; }
+button:disabled { opacity: .65; cursor: wait; }
+button, a, input, select, textarea { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+button:not(:disabled):hover { transform: translateY(-1px); }
+button:not(:disabled):active { transform: translateY(0) scale(.98); }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #ab91b7; outline-offset: 3px; }
+input, select, textarea { accent-color: #739f92; }
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 24px; color: white; background: #352033; box-shadow: 0 2px 12px #35203320; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: #352033; background: #f5d6c9; font-weight: 800; }
+.brand-title { font-size: 19px; font-weight: 750; }
+.brand-subtitle { margin-top: 3px; color: #f1dfe9; font-size: 12px; }
+.nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.nav-button { border: 1px solid #ffffff40; background: transparent; color: white; border-radius: 9px; padding: 9px 12px; }
+.nav-button.active { background: #f5d6c9; color: #352033; }
+.legacy-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.legacy-notice { background: #faf5f8; border-bottom: 1px solid #e8d4e1; padding: 9px 18px; font-size: 13px; color: #5b354f; }
+.legacy-frame { display: block; border: 0; width: 100%; flex: 1; min-height: 78vh; background: white; }
+.setup-card { width: min(760px, calc(100% - 32px)); margin: 36px auto; padding: clamp(22px, 5vw, 42px); background: white; border: 1px solid #e9ded8; border-radius: 18px; box-shadow: 0 16px 45px #392f300d; }
+.eyebrow { color: #a83e31; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+h1 { margin: 8px 0 12px; font-size: clamp(25px, 4vw, 34px); letter-spacing: -.03em; }
+.intro { color: #526457; line-height: 1.6; }
+.check-row { display: flex; gap: 12px; align-items: flex-start; padding: 16px; margin: 22px 0; border-radius: 12px; background: #f8fafc; }
+.check-row p { margin: 5px 0 0; color: #685852; font-size: 14px; }
+.status-dot { flex: 0 0 auto; width: 11px; height: 11px; margin-top: 5px; border-radius: 50%; background: #f59e0b; }
+.status-dot.ready { background: #16a34a; }
+.instructions { padding-left: 22px; line-height: 2; color: #51443f; }
+code { padding: 2px 5px; border-radius: 5px; background: #fff5f1; font-size: .9em; }
+.primary-button { border: 0; border-radius: 10px; padding: 12px 17px; background: #a83e31; color: white; font-weight: 700; }
+.result { margin-top: 16px; padding: 12px 14px; border-radius: 9px; line-height: 1.5; font-size: 14px; }
+.result.success { color: #166534; background: #dcfce7; }
+.result.error { color: #991b1b; background: #fee2e2; }
+.result.loading { color: #70415f; background: #f3e9f0; }
+.security-note { margin-top: 24px; padding-top: 18px; border-top: 1px solid #e9ded8; color: #685852; font-size: 13px; line-height: 1.6; }
+footer { padding: 18px; color: #526457; font-size: 12px; text-align: center; }
+.page-enter { animation: page-enter .24s ease-out both; }
+@keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+@media (max-width: 640px) { .topbar { align-items: flex-start; flex-direction: column; padding: 14px; } .legacy-frame { min-height: 75vh; } }
