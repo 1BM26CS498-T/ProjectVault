@@ -9,7 +9,7 @@ export const authClient = createAuthClient(authUrl, {
 });
 
 export async function getAuthToken() {
-  const sessionResult = await authClient.getSession({ forceFetch: true });
+  const sessionResult = await authClient.getSession();
   if (!sessionResult.data?.session) return null;
   if (sessionResult.data.session.token) return sessionResult.data.session.token;
 

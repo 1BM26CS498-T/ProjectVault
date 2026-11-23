@@ -187,6 +187,19 @@ function uploadWithProgress(url, formData, onProgress) {
 }
 
 export const supabase = {
+  onlineProjects: {
+  async search(query, page = 1) {
+    try {
+      const payload = await request(
+        `/online-projects/github?q=${encodeURIComponent(query)}&page=${page}`,
+        { token: null }
+      );
+      return { data: payload, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+},
   externalProjects: {
     async list() {
       try {

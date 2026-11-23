@@ -1,5 +1,6 @@
 import './load-env.js';
 import pg from 'pg';
+import './dns-lookup.js';
 
 const { Pool } = pg;
 

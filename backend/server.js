@@ -1,14 +1,16 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import multer from 'multer';
 import nodemailer from 'nodemailer';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -17,6 +19,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { dnsLookup, httpsAgent } from './dns-lookup.js';
 import { isDatabaseConfigured, pool } from './db.js';
 import { importExternalProject } from './external-projects.js';
 
@@ -27,7 +30,9 @@ const appUrl = (process.env.APP_URL || (development ? 'http://127.0.0.1:5173' : 
 const neonAuthBaseUrl = process.env.NEON_AUTH_BASE_URL?.replace(/\/$/, '');
 const neonAuthOrigin = neonAuthBaseUrl ? new URL(neonAuthBaseUrl).origin : null;
 const neonAuthJwks = process.env.NEON_AUTH_JWKS_URL
-  ? createRemoteJWKSet(new URL(process.env.NEON_AUTH_JWKS_URL))
+  ? createRemoteJWKSet(new URL(process.env.NEON_AUTH_JWKS_URL), {
+      [customFetch]: (url, options) => fetchExternal(url, options),
+    })
   : null;
 const neonFunctionUrl = process.env.NEON_FUNCTION_HELLO_BASE_URL;
 const storageBucket = 'assets';
@@ -46,6 +51,7 @@ const storageClient = isStorageConfigured
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       },
+      requestHandler: new NodeHttpHandler({ httpsAgent }),
     })
   : null;
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads'));
@@ -101,10 +107,11 @@ app.use(cors({
     }
     callback(httpError(403, 'Origin is not allowed by CORS.', 'origin_not_allowed'));
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   maxAge: 600,
 }));
+app.use('/api/neon-auth', proxyNeonAuth);
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', (req, _res, next) => {
   if (!isDatabaseConfigured && !['/health', '/'].includes(req.path)) {
@@ -195,8 +202,114 @@ async function retryTransient(operation) {
   throw lastError;
 }
 
+function requestExternal(url, options = {}, redirectCount = 0) {
+  const target = new URL(url);
+  if (target.protocol !== 'https:') throw new Error('Neon service endpoints must use HTTPS.');
+
+  return new Promise((resolve, reject) => {
+    const requestHeaders = new Headers(options.headers);
+    if (!requestHeaders.has('accept-encoding')) requestHeaders.set('accept-encoding', 'identity');
+    const request = https.request(target, {
+      method: options.method || 'GET',
+      headers: Object.fromEntries(requestHeaders.entries()),
+      agent: httpsAgent,
+      lookup: dnsLookup,
+    }, (response) => {
+      const status = response.statusCode || 502;
+      const location = response.headers.location;
+      if ([301, 302, 303, 307, 308].includes(status) && location) {
+        response.resume();
+        if (redirectCount >= 5) {
+          reject(new Error('Neon service endpoint redirected too many times.'));
+          return;
+        }
+        resolve(requestExternal(new URL(location, target), options, redirectCount + 1));
+        return;
+      }
+
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('error', reject);
+      response.on('end', () => {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(response.headers)) {
+          if (typeof value === 'string') headers.set(name, value);
+          else if (Array.isArray(value) && name !== 'set-cookie') headers.set(name, value.join(', '));
+        }
+        const body = [204, 205, 304].includes(status) ? null : Buffer.concat(chunks);
+        resolve(new Response(body, { status, headers }));
+      });
+    });
+
+    request.setTimeout(8000, () => request.destroy(new Error('Neon service request timed out.')));
+    request.on('error', reject);
+    request.end(options.body);
+  });
+}
+
 function fetchExternal(url, options = {}) {
-  return retryTransient(() => fetch(url, { ...options, signal: AbortSignal.timeout(8000) }));
+  return retryTransient(() => requestExternal(url, options));
+}
+
+function proxyNeonAuth(req, res) {
+  if (!neonAuthBaseUrl) {
+    res.status(503).json({
+      error: { code: 'auth_not_configured', message: 'Neon Auth is not configured.' },
+    });
+    return;
+  }
+
+  const authPath = req.originalUrl.slice('/api/neon-auth'.length);
+  const target = new URL(`${neonAuthBaseUrl}${authPath}`);
+  const headers = { ...req.headers };
+  for (const name of ['connection', 'host', 'transfer-encoding']) delete headers[name];
+  const upstream = https.request(target, {
+    method: req.method,
+    headers,
+    agent: httpsAgent,
+    lookup: dnsLookup,
+  }, (response) => {
+    res.statusCode = response.statusCode || 502;
+    const hopByHopHeaders = new Set([
+      'connection',
+      'keep-alive',
+      'proxy-authenticate',
+      'proxy-authorization',
+      'te',
+      'trailer',
+      'transfer-encoding',
+      'upgrade',
+    ]);
+    for (const [name, value] of Object.entries(response.headers)) {
+      if (value === undefined || hopByHopHeaders.has(name)) continue;
+      if (name === 'set-cookie') {
+        res.setHeader(name, response.headers['set-cookie'].map((cookie) => {
+          const withoutDomain = cookie.replace(/;\s*domain=[^;]*/i, '');
+          const withProxyPath = /;\s*path=[^;]*/i.test(withoutDomain)
+            ? withoutDomain.replace(/;\s*path=[^;]*/i, '; Path=/api/neon-auth')
+            : `${withoutDomain}; Path=/api/neon-auth`;
+          return withProxyPath;
+        }));
+      } else {
+        res.setHeader(name, value);
+      }
+    }
+    response.pipe(res);
+  });
+
+  upstream.setTimeout(30_000, () => upstream.destroy(new Error('Neon Auth request timed out.')));
+  upstream.on('error', (error) => {
+    console.error('Neon Auth proxy failed:', error.message);
+    if (!res.headersSent) {
+      res.status(502).json({
+        error: { code: 'neon_auth_unavailable', message: 'Neon Auth could not be reached.' },
+      });
+    } else {
+      res.destroy(error);
+    }
+  });
+  req.on('aborted', () => upstream.destroy());
+  req.pipe(upstream);
 }
 
 function sha256(value) {
@@ -309,6 +422,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
       services.postgres = 'connected';
     } catch (error) {
       console.error('PostgreSQL health check failed:', error.message);
+      services.postgres = 'unavailable';
       errors.postgres = 'The PostgreSQL connection failed.';
     }
   }
@@ -321,6 +435,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
       services.auth = 'connected';
     } catch (error) {
       console.error('Neon Auth health check failed:', error.message);
+      services.auth = 'unavailable';
       errors.auth = 'The Neon Auth endpoint is unavailable.';
     }
   }
@@ -330,6 +445,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
       services.objectStorage = 'connected';
     } catch (error) {
       console.error('Neon Object Storage health check failed:', error.message);
+      services.objectStorage = 'unavailable';
       errors.objectStorage = 'The Neon Object Storage bucket is unavailable.';
     }
   }
@@ -340,6 +456,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
       services.function = 'connected';
     } catch (error) {
       console.error('Neon Function health check failed:', error.message);
+      services.function = 'unavailable';
       errors.function = 'The Neon Function endpoint is unavailable.';
     }
   }
@@ -518,6 +635,70 @@ app.get('/api/auth/me', authOptional, loadAuthenticatedProfile, requireAuth, (re
   res.json({ user: safeUser(req.user) });
 });
 
+// Search public GitHub projects
+app.get('/api/online-projects/github', async (req, res) => {
+  try {
+    const query = String(req.query.q || '').trim();
+
+    if (!query) {
+      return res.status(400).json({
+        error: 'Search query is required'
+      });
+    }
+
+    const page = Math.max(1, Number(req.query.page) || 1);
+
+    const githubUrl = new URL('https://api.github.com/search/repositories');
+    githubUrl.searchParams.set('q', query);
+    githubUrl.searchParams.set('sort', 'stars');
+    githubUrl.searchParams.set('order', 'desc');
+    githubUrl.searchParams.set('per_page', '12');
+    githubUrl.searchParams.set('page', String(page));
+
+    const response = await fetch(githubUrl, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'ProjectVault'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      return res.status(response.status).json({
+        error: 'GitHub search failed',
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+
+    const projects = (data.items || []).map(repo => ({
+      id: repo.id,
+      name: repo.name,
+      fullName: repo.full_name,
+      description: repo.description,
+      url: repo.html_url,
+      stars: repo.stargazers_count,
+      language: repo.language,
+      topics: repo.topics || [],
+      updatedAt: repo.updated_at,
+      owner: repo.owner?.login,
+      avatar: repo.owner?.avatar_url
+    }));
+
+    res.json({
+      total: data.total_count,
+      projects
+    });
+  } catch (error) {
+    console.error('GitHub project search error:', error);
+
+    res.status(500).json({
+      error: 'Unable to search GitHub projects'
+    });
+  }
+});
 app.get('/api/external-projects', authOptional, loadAuthenticatedProfile, requireAuth, requireRole('student'), asyncRoute(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, title, source_type, source_url, content_text, created_at
@@ -1270,5 +1451,6 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, () => {
+  if (dnsLookup) console.log('Backend DNS_SERVERS override is active.');
   console.log(`ProjectVault PostgreSQL API listening on ${port}`);
 });

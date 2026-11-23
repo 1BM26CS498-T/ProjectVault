@@ -21,6 +21,7 @@ import SearchProjectsPage from './pages/SearchProjectsPage.jsx';
 import EditProjectPage from './pages/EditProjectPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import FaqPage from './pages/FaqPage.jsx';
+import ExploreOnlineProjectsPage from './pages/ExploreOnlineProjectsPage.jsx';
 
 const dashboardForRole = {
   student: 'student-dashboard',
@@ -150,6 +151,8 @@ function AppContent() {
         return <ProfilePage navigate={navigate} />;
       case 'search-projects':
         return <SearchProjectsPage navigate={navigate} />;
+      case 'explore-online-projects':
+        return <ExploreOnlineProjectsPage />;
       case 'project-detail':
         return <ProjectDetailPage id={route.params.id} navigate={navigate} />;
       case 'propose':

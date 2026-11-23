@@ -3,13 +3,15 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const apiUrl = (env.VITE_API_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
   return {
     root: 'frontend',
     envDir: '..',
     plugins: [react()],
     define: {
       'import.meta.env.VITE_NEON_AUTH_URL': JSON.stringify(
-        env.VITE_NEON_AUTH_URL || env.NEON_AUTH_BASE_URL || '',
+        env.VITE_NEON_AUTH_URL
+          || (mode === 'development' ? `${apiUrl}/api/neon-auth` : env.NEON_AUTH_BASE_URL || ''),
       ),
     },
     server: {

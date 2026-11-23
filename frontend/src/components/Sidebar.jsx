@@ -53,6 +53,7 @@ export default function Sidebar({ navigate, currentPage }) {
       <nav aria-label="Main navigation" className="grid grid-cols-2 gap-1 lg:flex lg:flex-col">
         {navButton('Home', 'landing')}
         {navButton('Explore projects', 'search-projects')}
+        {navButton('Explore online projects', 'explore-online-projects')}
         {navButton('FAQ & help', 'faq')}
         {user ? (
           <>
